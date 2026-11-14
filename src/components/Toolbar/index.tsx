@@ -1,0 +1,336 @@
+import { useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { EyeOff, Eye, FileJson, FileUp, FileDown, Trash2, TriangleAlert } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+import { useUIStore } from '@/store/ui';
+import { useResumeStore } from '@/store/resume';
+import { exportResume, importResume, ResumeImportError } from '@/services/resume';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { AdSlot } from '@/components/ads/AdSlot';
+import { LangSwitcher } from './LangSwitcher';
+import { BrandLogo } from '@/components/BrandLogo';
+import { trackClarityEvent } from '@/utils/clarity';
+
+export { FloatingToolbar } from './FloatingToolbar';
+
+/** 右侧按钮组 layout 过渡：模块级稳定引用。
+ *  0.4s 让 i18n 切换时按钮位置/尺寸变化平滑而非 flex 跳变；比 SpacingPresetGroup 0.6s 短，
+ *  避免高频语言切换显得迟钝。 */
+const LAYOUT_TRANSITION_SMOOTH = {
+  duration: 0.4,
+  ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+} as const;
+const LAYOUT_TRANSITION_NONE = { duration: 0 } as const;
+
+export function Toolbar() {
+  const { t } = useTranslation();
+  const privacyMode = useUIStore((s) => s.privacyMode);
+  const togglePrivacy = useUIStore((s) => s.togglePrivacy);
+  const setTemplate = useUIStore((s) => s.setTemplate);
+  const config = useResumeStore((s) => s.config);
+  const replace = useResumeStore((s) => s.replace);
+  const reset = useResumeStore((s) => s.reset);
+  const save = useResumeStore((s) => s.save);
+  const reduceMotion = useReducedMotion();
+  const layoutTransition = reduceMotion ? LAYOUT_TRANSITION_NONE : LAYOUT_TRANSITION_SMOOTH;
+  const hideVersion = import.meta.env.DEV
+    && typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('noVersion') === 'true';
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [clearAlertOpen, setClearAlertOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openMenu = useCallback(() => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setMenuOpen(true);
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    closeTimer.current = setTimeout(() => setMenuOpen(false), 150);
+  }, []);
+
+  const handleExport = () => {
+    if (!config) return;
+    const name = config.basics?.name || '';
+    const title = config.basics?.label || '';
+    const filename = [name, title].filter(Boolean).join('-') || 'resume';
+    exportResume(config, `${filename}.json`);
+    trackClarityEvent('resume_json_exported');
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setPendingFile(file);
+    setAlertOpen(true);
+  };
+
+  const handleClearConfirm = async () => {
+    reset();
+    try {
+      await save();
+      toast.success(t('toolbar.clearSuccess'));
+      trackClarityEvent('resume_data_cleared');
+    } catch {
+      toast.error(t('common.saveError'));
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (!pendingFile) return;
+    try {
+      const extended = await importResume(pendingFile);
+      replace(extended);
+      // 导入数据若带有模板设置，同步到 UI
+      const template = extended['x-op-template'];
+      if (typeof template === 'string' && template) setTemplate(template);
+      await save();
+      toast.success(t('toolbar.importSuccess'));
+      trackClarityEvent('resume_json_imported');
+    } catch (error) {
+      toast.error(
+        error instanceof ResumeImportError && error.code === 'invalid-format'
+          ? t('toolbar.importFormatError')
+          : t('toolbar.importParseFailed'),
+      );
+    } finally {
+      setPendingFile(null);
+    }
+  };
+
+  /**
+   * 返回首页：清除路由记忆标记后整页跳转
+   */
+  const handleBrandClick = () => {
+    try {
+      localStorage.removeItem('opresume:last-route');
+    } catch {
+      /* localStorage 不可用时忽略，跳转仍能完成 */
+    }
+    window.location.href = '/';
+  };
+
+  return (
+    <>
+      <div className="sticky top-0 z-50 bg-white print:hidden">
+      <header className="flex h-[var(--app-header-height)] items-center justify-between border-b px-3.5">
+        <div className="flex items-center gap-1 select-none">
+          <button
+            type="button"
+            onClick={handleBrandClick}
+            aria-label={t('toolbar.backToHome', '返回首页')}
+            className="flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A1A1A]/30 rounded-md"
+          >
+            <BrandLogo className="h-5 w-5 text-[#1A1A1A]" />
+            <span className="brand-font text-lg font-bold text-[#1A1A1A] tracking-tight">
+              {t('app.fullName')}
+            </span>
+          </button>
+          {!hideVersion && (
+            <Badge variant="secondary" className="ml-1.5 translate-y-px px-1.5 py-0 text-[10px] leading-4 font-medium text-muted-foreground">
+              v{__APP_VERSION__}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* 三个按钮各包 motion.div + layout：i18n 切换时按钮宽度由 layout 平滑过渡。
+              transition-all → transition-colors：避免 CSS width 过渡与 motion layout 双重动画。 */}
+          <motion.div layout transition={layoutTransition}>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      togglePrivacy();
+                      trackClarityEvent(
+                        privacyMode ? 'editor_privacy_mode_disabled' : 'editor_privacy_mode_enabled',
+                      );
+                    }}
+                    className={cn(
+                      'inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
+                      privacyMode
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'border-transparent bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    {/*
+                      隐私模式 icon 切换：用 AnimatePresence + popLayout 让 Eye/EyeOff 真正"翻转"过去，
+                      而不是瞬时替换。relative 容器固定 14px 宽高，给 absolute 子元素提供锚点；
+                      新 icon 从下方/旋转进入，旧 icon 反向退出，制造一个"翻牌"的小细节。
+                      reduceMotion 用户：跳过旋转/位移，仅 opacity。
+                    */}
+                    <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        <motion.span
+                          key={privacyMode ? 'on' : 'off'}
+                          className="absolute inset-0 inline-flex items-center justify-center"
+                          initial={
+                            reduceMotion
+                              ? { opacity: 0 }
+                              : { opacity: 0, rotate: -90, scale: 0.6 }
+                          }
+                          animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                          exit={
+                            reduceMotion
+                              ? { opacity: 0, transition: { duration: 0.1 } }
+                              : { opacity: 0, rotate: 90, scale: 0.6, transition: { duration: 0.15, ease: 'easeIn' } }
+                          }
+                          transition={
+                            reduceMotion
+                              ? { duration: 0.12 }
+                              : { type: 'spring', stiffness: 500, damping: 26, mass: 0.5 }
+                          }
+                        >
+                          {privacyMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </motion.span>
+                      </AnimatePresence>
+                    </span>
+                    {t('toolbar.privacyMode')}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {privacyMode ? t('toolbar.privacyOn') : t('toolbar.privacyOff')}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </motion.div>
+          <motion.div layout transition={layoutTransition}>
+            <LangSwitcher />
+          </motion.div>
+          <motion.div
+            layout
+            transition={layoutTransition}
+            onMouseEnter={openMenu}
+            onMouseLeave={scheduleClose}
+            onMouseMove={openMenu}
+          >
+            <DropdownMenu open={menuOpen} onOpenChange={(open) => {
+              if (open) openMenu();
+              else scheduleClose();
+            }} modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-muted/40 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
+                >
+                  <FileJson className="h-3.5 w-3.5" />
+                  {t('toolbar.jsonMenu')}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="min-w-0"
+                onMouseEnter={openMenu}
+                onMouseLeave={scheduleClose}
+              >
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                  <FileUp className="h-4 w-4" />
+                  {t('toolbar.importJSON')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExport}>
+                  <FileDown className="h-4 w-4" />
+                  {t('toolbar.exportJSON')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setClearAlertOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t('toolbar.clearData')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </motion.div>
+        </div>
+      </header>
+      <div className="flex justify-center border-b py-1">
+        <AdSlot slot="header728x90" />
+      </div>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        className="hidden"
+        aria-label="Import JSON"
+        onChange={handleFileSelect}
+      />
+
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <TriangleAlert className="h-5 w-5 text-amber-500" />
+              {t('toolbar.importWarning')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{t('toolbar.importWarningDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingFile(null)}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+              onClick={handleImportConfirm}
+            >
+              {t('toolbar.importConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={clearAlertOpen} onOpenChange={setClearAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <TriangleAlert className="h-5 w-5 text-destructive" />
+              {t('toolbar.clearWarning')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{t('toolbar.clearWarningDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+              onClick={handleClearConfirm}
+            >
+              {t('toolbar.clearConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+    </>
+  );
+}

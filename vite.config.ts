@@ -1,0 +1,363 @@
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+import fs from 'fs/promises';
+import { existsSync, unlinkSync, readFileSync } from 'fs';
+
+const DATA_FILE = path.resolve(__dirname, 'data/resume.json');
+const RESUMES_FILE = path.resolve(__dirname, 'data/resumes.json');
+const DATA_DIR = path.resolve(__dirname, 'data');
+const SAMPLE_FILE = path.resolve(__dirname, 'src/config/sample-resume.json');
+
+const MIME_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+};
+
+const EXT_MIME: Record<string, string> = Object.fromEntries(
+  Object.entries(MIME_EXT).map(([m, e]) => [e, m]),
+);
+
+/** 从示例数据生成用户初始数据（重置头像配置） */
+async function readSampleAsUserData(): Promise<string> {
+  const raw = await fs.readFile(SAMPLE_FILE, 'utf-8');
+  const sample = JSON.parse(raw);
+  if (sample.avatar) {
+    sample.avatar.hidden = false;
+    delete sample.avatar.src;
+  }
+  return JSON.stringify(sample, null, 2);
+}
+
+/** 读取多简历库；首次访问时从旧版单简历文件迁移，或从示例数据初始化 */
+async function readResumesLibrary(): Promise<string> {
+  if (!existsSync(RESUMES_FILE)) {
+    let data: unknown = null;
+    if (existsSync(DATA_FILE)) {
+      try {
+        data = JSON.parse(await fs.readFile(DATA_FILE, 'utf-8'));
+      } catch {
+        data = null;
+      }
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      data = JSON.parse(await readSampleAsUserData());
+    }
+    const now = Date.now();
+    const library = {
+      activeId: 'default',
+      resumes: [
+        { meta: { id: 'default', name: '我的简历', createdAt: now, updatedAt: now }, data },
+      ],
+    };
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(RESUMES_FILE, JSON.stringify(library, null, 2), 'utf-8');
+  }
+  return fs.readFile(RESUMES_FILE, 'utf-8');
+}
+
+function resumeApiPlugin(): Plugin {
+  return {
+    name: 'resume-api',
+    configureServer(server) {
+      // 多简历库。注意必须在 /api/resume 之前注册：connect 按前缀匹配，
+      // 先注册 /api/resume 会把 /api/resumes 的请求截获。
+      server.middlewares.use('/api/resumes', async (req, res) => {
+        try {
+          if (req.method === 'GET') {
+            const data = await readResumesLibrary();
+            res.setHeader('Content-Type', 'application/json');
+            res.end(data);
+            return;
+          }
+
+          if (req.method === 'POST') {
+            const body = await new Promise<string>((resolve, reject) => {
+              let data = '';
+              req.on('data', (chunk: Buffer) => { data += chunk; });
+              req.on('end', () => resolve(data));
+              req.on('error', reject);
+            });
+            try {
+              const parsed = JSON.parse(body);
+              if (!parsed || typeof parsed.activeId !== 'string' || !Array.isArray(parsed.resumes)) {
+                throw new Error('invalid library');
+              }
+            } catch {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: '简历库数据格式无效' }));
+              return;
+            }
+            await fs.writeFile(RESUMES_FILE, body, 'utf-8');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+            return;
+          }
+
+          res.statusCode = 405;
+          res.end();
+        } catch (e) {
+          res.statusCode = 500;
+          const msg = e instanceof Error ? e.message : '服务器内部错误';
+          res.end(JSON.stringify({ error: msg }));
+        }
+      });
+
+      server.middlewares.use('/api/resume', async (req, res) => {
+        try {
+          if (req.method === 'GET') {
+            if (!existsSync(DATA_FILE)) {
+              await fs.mkdir(DATA_DIR, { recursive: true });
+              await fs.writeFile(DATA_FILE, await readSampleAsUserData(), 'utf-8');
+            }
+            const data = await fs.readFile(DATA_FILE, 'utf-8');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(data);
+            return;
+          }
+
+          if (req.method === 'POST') {
+            const body = await new Promise<string>((resolve, reject) => {
+              let data = '';
+              req.on('data', (chunk: Buffer) => { data += chunk; });
+              req.on('end', () => resolve(data));
+              req.on('error', reject);
+            });
+            try {
+              JSON.parse(body);
+            } catch {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: 'JSON 格式无效' }));
+              return;
+            }
+            await fs.writeFile(DATA_FILE, body, 'utf-8');
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+            return;
+          }
+
+          res.statusCode = 405;
+          res.end();
+        } catch (e) {
+          res.statusCode = 500;
+          const msg = e instanceof Error ? e.message : '服务器内部错误';
+          res.end(JSON.stringify({ error: msg }));
+        }
+      });
+
+      // 头像
+      server.middlewares.use('/api/avatar', async (req, res) => {
+        try {
+          // GET: 返回头像文件
+          if (req.method === 'GET') {
+            for (const [ext, mime] of Object.entries(EXT_MIME)) {
+              const file = path.join(DATA_DIR, `avatar${ext}`);
+              if (existsSync(file)) {
+                const buf = await fs.readFile(file);
+                res.setHeader('Content-Type', mime);
+                res.setHeader('Cache-Control', 'no-cache');
+                res.end(buf);
+                return;
+              }
+            }
+            res.statusCode = 404;
+            res.end();
+            return;
+          }
+
+          // POST: 上传头像
+          if (req.method !== 'POST') {
+            res.statusCode = 405;
+            res.end();
+            return;
+          }
+
+          const contentType = req.headers['content-type'] ?? '';
+          const ext = MIME_EXT[contentType];
+          if (!ext) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: '不支持的图片格式' }));
+            return;
+          }
+
+          const chunks: Uint8Array[] = [];
+          let totalSize = 0;
+          await new Promise<void>((resolve, reject) => {
+            req.on('data', (chunk: Uint8Array) => {
+              totalSize += chunk.length;
+              if (totalSize > 500 * 1024) { reject(new Error('FILE_TOO_LARGE')); return; }
+              chunks.push(chunk);
+            });
+            req.on('end', resolve);
+            req.on('error', reject);
+          });
+
+          // 删除旧头像文件
+          for (const e of Object.values(MIME_EXT)) {
+            const old = path.join(DATA_DIR, `avatar${e}`);
+            if (existsSync(old)) unlinkSync(old);
+          }
+
+          const data = new Uint8Array(totalSize);
+          let offset = 0;
+          for (const c of chunks) { data.set(c, offset); offset += c.length; }
+          await fs.writeFile(path.join(DATA_DIR, `avatar${ext}`), data);
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ src: '/api/avatar' }));
+        } catch (e) {
+          if (e instanceof Error && e.message === 'FILE_TOO_LARGE') {
+            res.statusCode = 413;
+            res.end(JSON.stringify({ error: '文件大小超过 500KB' }));
+            return;
+          }
+          res.statusCode = 500;
+          const msg = e instanceof Error ? e.message : '服务器内部错误';
+          res.end(JSON.stringify({ error: msg }));
+        }
+      });
+    },
+    async writeBundle() {
+      const outDir = path.resolve(__dirname, 'dist/data');
+      await fs.mkdir(outDir, { recursive: true });
+
+      // data/resume.json 不存在时，从示例数据初始化到 dist
+      let resumeRaw: string;
+      if (!existsSync(DATA_FILE)) {
+        resumeRaw = await readSampleAsUserData();
+      } else {
+        resumeRaw = await fs.readFile(DATA_FILE, 'utf-8');
+      }
+
+      // 复制头像文件，记录实际路径
+      let avatarStaticPath: string | null = null;
+      for (const ext of Object.values(MIME_EXT)) {
+        const src = path.join(DATA_DIR, `avatar${ext}`);
+        if (existsSync(src)) {
+          await fs.copyFile(src, path.resolve(outDir, `avatar${ext}`));
+          avatarStaticPath = `/data/avatar${ext}`;
+        }
+      }
+
+      // 复制 resume.json，将 /api/avatar 替换为静态文件路径
+      let output = resumeRaw;
+      if (avatarStaticPath) {
+        try {
+          const config = JSON.parse(resumeRaw);
+          if (config.avatar?.src?.startsWith('/api/avatar')) {
+            config.avatar.src = avatarStaticPath;
+            output = JSON.stringify(config, null, 2);
+          }
+        } catch { /* 解析失败则原样复制 */ }
+      }
+      await fs.writeFile(path.resolve(outDir, 'resume.json'), output);
+    },
+  };
+}
+
+const pkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
+);
+
+/**
+ * Dev 服务器路由重写：让 /editor 与 /editor/ 命中 editor.html。
+ * Vite 默认仅响应 /editor.html，部署侧（Cloudflare Pages 的 _redirects）
+ * 负责生产环境的同等重写，这里是开发环境的镜像。
+ */
+function editorRouteRewritePlugin(): Plugin {
+  return {
+    name: 'editor-route-rewrite',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (!req.url) return next();
+        // 仅匹配精确的 /editor 或 /editor/，避免误伤 /editor.html 与静态资源
+        const [pathname, search = ''] = req.url.split('?');
+        if (pathname === '/editor' || pathname === '/editor/') {
+          req.url = '/editor.html' + (search ? '?' + search : '');
+        }
+        next();
+      });
+    },
+  };
+}
+
+function clarityPlugin(id: string): Plugin {
+  return {
+    name: 'clarity-production-script',
+    apply: 'build',
+    configResolved() {
+      // 未配置 ID 时提示，避免部署后统计静默缺失
+      if (!id) {
+        console.warn('[clarity] 未配置 CLARITY_ID 环境变量，本次构建产物不包含统计脚本。');
+      }
+    },
+    transformIndexHtml() {
+      if (!id) return;
+
+      return [
+        {
+          tag: 'script',
+          injectTo: 'head-prepend',
+          children: `(function(c,l,a,r,i,t,y){
+  c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+  t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+  y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+})(window, document, "clarity", "script", "${id}");`,
+        },
+      ];
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  // CLARITY_ID：Microsoft Clarity 项目 ID
+  // 未配置时构建产物不注入统计脚本
+  const { CLARITY_ID } = loadEnv(mode, __dirname, 'CLARITY_');
+
+  return {
+    plugins: [react(), resumeApiPlugin(), editorRouteRewritePlugin(), clarityPlugin(CLARITY_ID)],
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+    },
+    server: {
+      port: 5173,
+      strictPort: true,
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
+    build: {
+      rollupOptions: {
+        // 多入口：landing（index.html，纯静态）与编辑器（editor.html，挂 React）。
+        // 让 landing 用户不必下载 React bundle，提升首屏与 SEO 表现。
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+          editor: path.resolve(__dirname, 'editor.html'),
+        },
+        output: {
+          manualChunks: {
+            'vendor-tiptap': [
+              '@tiptap/react',
+              '@tiptap/starter-kit',
+              '@tiptap/extension-link',
+              '@tiptap/extension-placeholder',
+            ],
+            'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+            'vendor-i18n': ['i18next', 'react-i18next'],
+            'vendor-radix': [
+              '@radix-ui/react-dialog',
+              '@radix-ui/react-select',
+              '@radix-ui/react-scroll-area',
+              '@radix-ui/react-slider',
+              '@radix-ui/react-tooltip',
+              '@radix-ui/react-alert-dialog',
+              '@radix-ui/react-collapsible',
+            ],
+          },
+        },
+      },
+    },
+  };
+});

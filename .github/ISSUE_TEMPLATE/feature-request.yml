@@ -1,0 +1,59 @@
+name: Feature Request
+description: Got an idea to make OpResume better? We'd love to hear it!
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea with OpResume! 🚀 The more detail you give us, the better we can understand and evaluate your suggestion.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The pain point
+      description: Is your idea solving something that bugs you right now? Tell us about it!
+      placeholder: e.g. Every time I add a new work experience, I have to reorder things manually... it's a hassle.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Your ideal solution
+      description: What should this feature look like, and how should it work?
+      placeholder: e.g. Add a drag handle next to each entry in the project list, so I can reorder them by simply dragging.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which part of OpResume does this feature mainly touch?
+      options:
+        - 🎨 UI/UX
+        - 📄 Templates & Layout
+        - 💾 Data & JSON (import / export / persistence)
+        - 🚀 Performance & Architecture
+        - 🛠 Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround (optional)
+      description: How are you getting around this problem today?
+      placeholder: e.g. Right now I export the JSON, shuffle the array in a code editor, and re-import it...
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else? (optional)
+      description: Extra context is always welcome — reference links, screenshots of designs you love from other products, sketches, you name it.
+      placeholder: Drag & drop screenshots here, or paste any relevant links.
+    validations:
+      required: false

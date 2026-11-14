@@ -1,0 +1,97 @@
+name: Bug Report
+description: Something not working right? Tell us about it!
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! 🙏 The more details you share, the faster we can track it down — fill in whatever you can below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Tell us briefly what went wrong — what actually happened?
+      placeholder: A clear description of the bug. e.g. The page goes blank after importing a JSON file.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What should have happened instead?
+      placeholder: e.g. The resume should render correctly instead of throwing an error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reliably reproduce this issue?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See the error
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: OpResume version
+      description: You can find it next to the logo on the page, or in package.json.
+      placeholder: "e.g. v1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: How are you running OpResume?
+      description: Which setup are you using?
+      options:
+        - Online (opresume.pages.dev)
+        - Local dev server (npm run dev)
+        - Self-hosted static build (npm run build)
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Which browser and version are you using?
+      placeholder: "e.g. Chrome 130, Safari 18, Firefox 135"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: What's your operating system?
+      placeholder: "e.g. macOS 15, Windows 11, Ubuntu 24.04"
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings (recommended)
+      description: Got a screenshot or a quick recording? It helps a ton — just drop it in.
+      placeholder: Drag & drop or paste your screenshots right here.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Any other info that might help us out.
+      placeholder: e.g. console errors, the specific JSON snippet involved, etc.
+    validations:
+      required: false

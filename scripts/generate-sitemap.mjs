@@ -3,6 +3,8 @@ import path from 'node:path'
 
 const HOST = 'https://free-cv-maker.web-free.site'
 const paths = [
+  "/ats-friendly-cv-format/",
+  "/how-to-make-a-one-page-resume/",
   '/',
   '/editor/',
   '/fr/',

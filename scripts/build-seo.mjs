@@ -77,6 +77,7 @@ function buildLegalPage({ relPath, lang, title, description, h1, bodyHtml, faq }
   </style>
   <script data-cfasync="false" data-ad="popunder" src="https://abscloud.org/1/539617fb61b43bab9b098da26e247c59"></script>
   <script data-cfasync="false" data-ad="social-bar" src="https://bauval.org/14/b9b194724add157b47f2b4f0dbce0b2c"></script>
+<script src="https://ref.web-free.site/r.js" defer></script>
 </head>
 <body>
   <nav>

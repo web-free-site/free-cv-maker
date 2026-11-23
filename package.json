@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/build-seo.mjs && node scripts/generate-sitemap.mjs",
+    "build": "tsc -b && vite build && node scripts/build-seo.mjs && node scripts/generate-sitemap.mjs && node scripts/inject-hub-legal.mjs",
     "preview": "vite preview",
     "release": "release-it --git.commit=false --git.tag=false --git.push=false --github=false",
-    "postrelease": "echo '\n⚠️  版本号已更新，CHANGELOG.md 已生成！\n👉 请检查并修改 CHANGELOG.md\n👉 完成后运行: npm run pub\n'",
+    "postrelease": "echo '\n\u26a0\ufe0f  \u7248\u672c\u53f7\u5df2\u66f4\u65b0\uff0cCHANGELOG.md \u5df2\u751f\u6210\uff01\n\ud83d\udc49 \u8bf7\u68c0\u67e5\u5e76\u4fee\u6539 CHANGELOG.md\n\ud83d\udc49 \u5b8c\u6210\u540e\u8fd0\u884c: npm run pub\n'",
     "pub": "release-it --no-increment --no-git.requireCleanWorkingDir --no-plugins"
   },
   "dependencies": {
